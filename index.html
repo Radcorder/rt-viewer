@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>RT-Viewer Ultimate</title>
+    <link rel="stylesheet" href="./static/css/style.css">
+    <script src="https://unpkg.com/hammerjs@2.0.8/hammer.min.js"></script>
+    <script src="https://unpkg.com/cornerstone-math@0.1.9/dist/cornerstoneMath.min.js"></script>
+    <script src="https://unpkg.com/cornerstone-core@2.6.1/dist/cornerstone.min.js"></script>
+    <script src="https://unpkg.com/cornerstone-tools@4.22.1/dist/cornerstoneTools.min.js"></script>
+</head>
+<body>
+
+    <div id="header">
+        <div class="ctrl-group">
+            <label>Case</label>
+            <select id="caseSelector"><option>Loading...</option></select>
+        </div>
+        <div class="ctrl-group">
+            <label>Slice: <span id="sliceInfo">0</span></label>
+            <input type="range" id="sliceSlider" min="0" value="0" style="width: 150px;">
+        </div>
+        
+        <div class="ctrl-group" style="border-left: 1px solid #555; padding-left: 10px; width: 340px;">
+            <div style="display: flex; justify-content: space-between; width: 100%;">
+                <label>Dose Range</label>
+                <div class="unit-switch">
+                    <label><input type="radio" name="unit" id="unitGy" checked> Gy</label>
+                    <label><input type="radio" name="unit" id="unitPct"> %</label>
+                    <span style="margin-left:5px; color:#aaa; font-size:0.8em;">(100%=<input type="number" id="normDose" class="norm-input" value="60">Gy)</span>
+                </div>
+            </div>
+            <div style="display: flex; align-items: center; width: 100%; gap: 5px;">
+                <span class="val-display" id="dispMin" style="color: #4fc3f7;">10</span>
+                <div style="flex-grow: 1; display: flex; flex-direction: column;">
+                    <input type="range" id="doseMin" min="0" max="80" step="1" value="10" style="width: 100%; margin: 2px 0;">
+                    <input type="range" id="doseMax" min="0" max="80" step="1" value="60" style="width: 100%; margin: 2px 0;">
+                </div>
+                <span class="val-display" id="dispMax" style="color: #ff5252;">60</span>
+            </div>
+        </div>
+        
+        <div class="ctrl-group">
+            <label>Opacity</label>
+            <input type="range" id="doseOpacity" min="0" max="1" step="0.1" value="0.7" style="width: 60px;">
+        </div>
+
+        <div class="ctrl-group" style="border-left: 1px solid #555; padding-left: 10px;">
+            <label>Preset</label>
+            <div style="display:flex; gap:2px;">
+                <button onclick="setWL(400,40)" class="btn-tool">Soft</button>
+                <button onclick="setWL(1500,-600)" class="btn-tool">Lung</button>
+                <button onclick="setWL(2000,300)" class="btn-tool">Bone</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="loadingBarContainer"><div id="loadingBar"></div></div>
+
+    <div id="contentArea">
+        <div id="sidebar">
+            <div class="roi-section">
+                <div class="roi-section-header" id="roiHeaderLeft">Left Structures</div>
+                <div id="roiListLeft" class="roi-list"></div>
+            </div>
+            <div class="roi-section">
+                <div class="roi-section-header" id="roiHeaderRight">Right Structures</div>
+                <div id="roiListRight" class="roi-list"></div>
+            </div>
+        </div>
+
+        <div id="mainContainer">
+            <div id="viewLeft" class="viewport">
+                <div class="viewport-header">
+                    <span class="viewport-title" style="color:#4CAF50;">Left View</span>
+                    <span id="doseValLeft" class="dose-readout"></span>
+                    <div class="select-container">
+                        <select id="selStructLeft" title="Structure Set"><option value="">None</option></select>
+                        <select id="selDoseLeft" title="Dose Plan"><option value="">None</option></select>
+                    </div>
+                </div>
+                <div class="canvas-wrapper">
+                    <div id="dicomLeft" class="dicom-image" oncontextmenu="return false;"></div>
+                    <canvas id="doseCanvasLeft" class="dose-canvas"></canvas>
+                    <canvas id="structCanvasLeft" class="struct-canvas"></canvas>
+                </div>
+            </div>
+
+            <div id="viewRight" class="viewport">
+                <div class="viewport-header">
+                    <span class="viewport-title" style="color:#2196F3;">Right View</span>
+                    <span id="doseValRight" class="dose-readout"></span>
+                    <div class="select-container">
+                        <select id="selStructRight" title="Structure Set"><option value="">None</option></select>
+                        <select id="selDoseRight" title="Dose Plan"><option value="">None</option></select>
+                    </div>
+                </div>
+                <div class="canvas-wrapper">
+                    <div id="dicomRight" class="dicom-image" oncontextmenu="return false;"></div>
+                    <canvas id="doseCanvasRight" class="dose-canvas"></canvas>
+                    <canvas id="structCanvasRight" class="struct-canvas"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="credit">Data source: The Cancer Imaging Archive (TCIA)</div>
+
+    <script src="./static/js/script.js"></script>
+</body>
+</html>
