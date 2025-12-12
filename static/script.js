@@ -1,4 +1,4 @@
-/* RT-Viewer Ultimate Script (Fixed CT Loading) */
+/* RT-Viewer Ultimate Script (Final: Scroll Fix) */
 const state = {
     caseId: null, manifest: null, ctVolume: null,
     doseUnit: 'Gy', normalizationDse: 60.0,
@@ -17,6 +17,7 @@ const ui = {
 };
 
 function init() {
+    // ツール初期化
     cornerstoneTools.external.cornerstone = cornerstone;
     cornerstoneTools.external.cornerstoneMath = cornerstoneMath;
     cornerstoneTools.external.Hammer = Hammer;
@@ -25,22 +26,36 @@ function init() {
     ['left', 'right'].forEach(k => {
         const el = state.viewports[k].el;
         cornerstone.enable(el);
-        const tools = [cornerstoneTools.WwwcTool, cornerstoneTools.PanTool, cornerstoneTools.ZoomTool, cornerstoneTools.StackScrollMouseWheelTool];
+        
+        // 標準ツール（W/L, Pan, Zoom）のみ有効化。スクロールは独自実装する。
+        const tools = [cornerstoneTools.WwwcTool, cornerstoneTools.PanTool, cornerstoneTools.ZoomTool];
         tools.forEach(t => cornerstoneTools.addTool(t));
         cornerstoneTools.setToolActive('Wwwc', { mouseButtonMask: 1 });
         cornerstoneTools.setToolActive('Zoom', { mouseButtonMask: 2 });
         cornerstoneTools.setToolActive('Pan', { mouseButtonMask: 4 });
-        cornerstoneTools.setToolActive('StackScrollMouseWheel', { });
 
         el.addEventListener('cornerstoneimagerendered', () => redrawOverlay(k));
-        el.addEventListener('cornerstoneToolsStackScroll', (e) => {
-            const newIdx = e.detail.newImageIdIndex;
-            if(ui.slider.value != newIdx) {
-                ui.slider.value = newIdx;
-                drawSlice(newIdx);
+        
+        // ★修正ポイント：マウスホイールでのスライス送り（独自実装）
+        el.addEventListener('wheel', (e) => {
+            e.preventDefault(); // ブラウザのスクロールを止める
+            if (!state.ctVolume) return;
+
+            const direction = e.deltaY > 0 ? 1 : -1; // 下回転なら進む、上なら戻る
+            let current = parseInt(ui.slider.value);
+            let max = parseInt(ui.slider.max);
+            
+            let next = current + direction;
+            if(next < 0) next = 0;
+            if(next > max) next = max;
+            
+            if(next !== current) {
+                ui.slider.value = next;
+                drawSlice(next); // 描画更新
             }
         });
         
+        // マウス位置の線量表示
         el.addEventListener('mousemove', (e) => {
             if (!state.manifest) return;
             const pt = cornerstone.pageToPixel(el, e.pageX, e.pageY);
@@ -51,6 +66,7 @@ function init() {
         });
     });
 
+    // 左右同期（Pan/Zoom, W/L）
     const syncPZ = new cornerstoneTools.Synchronizer("cornerstoneimagerendered", cornerstoneTools.panZoomSynchronizer);
     const syncWC = new cornerstoneTools.Synchronizer("cornerstoneimagerendered", cornerstoneTools.wwwcSynchronizer);
     syncPZ.add(state.viewports.left.el); syncPZ.add(state.viewports.right.el);
@@ -58,6 +74,7 @@ function init() {
 
     loadCaseList();
     
+    // UIイベント
     ui.caseSel.addEventListener('change', (e) => loadCase(e.target.value));
     ui.slider.addEventListener('input', (e) => drawSlice(parseInt(e.target.value)));
     ui.doseMin.addEventListener('input', updateVisuals);
@@ -104,20 +121,21 @@ async function loadCase(caseId) {
     const mf = await fetch(`./static/data/${caseId}/manifest.json`).then(r=>r.json());
     state.manifest = mf;
     
-    // ★修正ポイント: 8bitデータを読み込み、LUTを使って元のCT値(16bit)に戻す
+    // CT読込 & 16bit復元
     const ctBin = await fetchBinary(`./static/data/${caseId}/ct.bin`, mf.ct.chunks);
     const rawBytes = new Uint8Array(ctBin);
     const volumeLen = rawBytes.length;
     state.ctVolume = new Int16Array(volumeLen);
     
-    const lut = mf.ct.lut; // 工場で作った変換表
+    const lut = mf.ct.lut;
     for(let i=0; i<volumeLen; i++) {
-        state.ctVolume[i] = lut[rawBytes[i]]; // 暗号解読！
+        state.ctVolume[i] = lut[rawBytes[i]];
     }
     
     ui.slider.max = mf.ct.count - 1;
     ui.slider.value = Math.floor(mf.ct.count / 2);
     
+    // プルダウン初期化
     const doseKeys = Object.keys(mf.doses);
     const structKeys = Object.keys(mf.structs);
     
@@ -129,6 +147,7 @@ async function loadCase(caseId) {
         structKeys.forEach(s => { let o=document.createElement('option'); o.value=s; o.text=s; ui[k].structSel.add(o); });
     });
 
+    // 初期選択 (左:1つ目, 右:2つ目)
     if(doseKeys.length > 0) await loadDose('left', doseKeys[0]);
     if(doseKeys.length > 1) await loadDose('right', doseKeys[1]); else if(doseKeys.length > 0) await loadDose('right', doseKeys[0]);
     
@@ -140,12 +159,14 @@ async function loadCase(caseId) {
     ui.loadingBar.style.width = "100%";
     setTimeout(() => ui.loadingBar.style.width = "0%", 500);
     
+    // 線量正規化設定
     if(doseKeys.length > 0) {
         const presc = mf.doses[doseKeys[0]].prescription || 60;
         state.normalizationDose = presc; ui.normDose.value = presc;
         setSliderRange('Gy'); updateVisuals();
     }
     
+    // 初回描画
     ['left', 'right'].forEach(k => cornerstone.resize(state.viewports[k].el));
     drawSlice(parseInt(ui.slider.value));
 }
@@ -224,6 +245,7 @@ function redrawOverlay(key) {
     const sCtx = vp.structCanvas.getContext('2d');
     dCtx.clearRect(0,0,w,h); sCtx.clearRect(0,0,w,h);
     
+    // 線量描画
     if (vp.doseVolume) {
         const ctZ = state.manifest.ct.z_positions[parseInt(ui.slider.value)];
         let bestZ=-1, minD=999;
@@ -273,6 +295,7 @@ function redrawOverlay(key) {
         }
     }
     
+    // ストラクチャ描画
     if (vp.structData) {
         sCtx.save();
         cornerstone.setToPixelCoordinateSystem(enEl, sCtx);
