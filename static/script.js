@@ -1,4 +1,4 @@
-/* RT-Viewer Ultimate Script (Added: Toggle All ROI) */
+/* RT-Viewer Ultimate Script (Integrated ALL Button) */
 const state = {
     caseId: null, manifest: null, ctVolume: null,
     doseUnit: 'Gy', normalizationDse: 60.0,
@@ -25,7 +25,6 @@ function init() {
     ['left', 'right'].forEach(k => {
         const el = state.viewports[k].el;
         cornerstone.enable(el);
-        
         const tools = [cornerstoneTools.WwwcTool, cornerstoneTools.PanTool, cornerstoneTools.ZoomTool];
         tools.forEach(t => cornerstoneTools.addTool(t));
         cornerstoneTools.setToolActive('Wwwc', { mouseButtonMask: 1 });
@@ -154,13 +153,32 @@ async function loadDose(key, doseId) {
     redrawOverlay(key);
 }
 
+// ★ここが変わりました！
 async function loadStruct(key, structId) {
     const vp = state.viewports[key];
     vp.structId = structId; ui[key].structSel.value = structId;
     if(!structId) { vp.structData = null; redrawOverlay(key); return; }
+    
     const fn = state.manifest.structs[structId];
     vp.structData = await fetch(`./static/data/${state.caseId}/${fn}`).then(r=>r.json());
+    
     vp.roiListEl.innerHTML = "";
+    
+    // 1. 先頭に「ALLボタン」をリスト項目として追加
+    const btnRow = document.createElement('div');
+    btnRow.style.padding = "5px";
+    btnRow.style.borderBottom = "1px solid #333";
+    btnRow.style.marginBottom = "5px";
+    
+    const btn = document.createElement('button');
+    btn.className = "btn-tiny full-width"; // CSSで定義したスタイルを使用
+    btn.textContent = "👁️ ALL ON/OFF";
+    btn.onclick = () => window.toggleAllROI(key);
+    
+    btnRow.appendChild(btn);
+    vp.roiListEl.appendChild(btnRow);
+
+    // 2. その下にいつものROIリストを追加
     Object.keys(vp.structData).forEach(n => {
         if(vp.roiVisibility[n] === undefined) vp.roiVisibility[n] = true;
         const d = document.createElement('div'); d.className = 'roi-item';
@@ -348,22 +366,15 @@ window.setWL = (ww, wc) => {
     });
 };
 
-// ★一括ON/OFF機能
 window.toggleAllROI = (key) => {
     const vp = state.viewports[key];
     if(!vp.structData) return;
-    
-    // 現在のステータスを確認（ひとつでもOFFなら、ターゲットはON。全部ONなら、ターゲットはOFF）
     const allKeys = Object.keys(vp.structData);
     const anyOff = allKeys.some(k => vp.roiVisibility[k] === false);
     const targetState = anyOff; 
-    
     allKeys.forEach(k => vp.roiVisibility[k] = targetState);
-    
-    // チェックボックスの見た目を更新
     const checkboxes = vp.roiListEl.querySelectorAll('input[type="checkbox"]');
     checkboxes.forEach(cb => cb.checked = targetState);
-    
     redrawOverlay(key);
 };
 
