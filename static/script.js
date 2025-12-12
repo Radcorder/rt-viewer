@@ -266,4 +266,112 @@ function redrawOverlay(key) {
             const dx = (dMeta.origin[0] - ctMeta.origin[0]) / ctMeta.spacing[0];
             const dy = (dMeta.origin[1] - ctMeta.origin[1]) / ctMeta.spacing[1];
             const dw = dMeta.cols * (dMeta.spacing[0] / ctMeta.spacing[0]);
-            const dh = d
+            const dh = dMeta.rows * (dMeta.spacing[1] / ctMeta.spacing[1]);
+            
+            dCtx.drawImage(c, dx, dy, dw, dh);
+            dCtx.restore();
+        }
+    }
+    
+    if (vp.structData) {
+        sCtx.save();
+        cornerstone.setToPixelCoordinateSystem(enEl, sCtx);
+        sCtx.lineWidth = 2.0 / enEl.viewport.scale;
+        
+        const ctZ = state.manifest.ct.z_positions[parseInt(ui.slider.value)];
+        
+        Object.keys(vp.structData).forEach(roi => {
+            if (vp.roiVisibility[roi] === false) return;
+            const s = vp.structData[roi];
+            let pts = s.contours[ctZ.toFixed(2)];
+            if (!pts) {
+                const keys = Object.keys(s.contours);
+                for(let k of keys) { if(Math.abs(parseFloat(k)-ctZ) < 0.1) { pts = s.contours[k]; break; } }
+            }
+            
+            if (pts) {
+                sCtx.strokeStyle = s.color;
+                sCtx.beginPath();
+                pts.forEach(poly => {
+                    sCtx.moveTo(poly[0][0], poly[0][1]);
+                    for(let i=1; i<poly.length; i++) sCtx.lineTo(poly[i][0], poly[i][1]);
+                    sCtx.closePath();
+                });
+                sCtx.stroke();
+            }
+        });
+        sCtx.restore();
+    }
+}
+
+function updateDoseReadout(wx, wy) {
+    ['left', 'right'].forEach(k => {
+        const el = document.getElementById(k==='left'?'doseValLeft':'doseValRight');
+        el.textContent = "";
+        const vp = state.viewports[k];
+        if(!vp.doseVolume) return;
+        
+        const dMeta = vp.doseMeta;
+        const dCol = Math.floor((wx - dMeta.origin[0]) / dMeta.spacing[0]);
+        const dRow = Math.floor((wy - dMeta.origin[1]) / dMeta.spacing[1]);
+        
+        const ctZ = state.manifest.ct.z_positions[parseInt(ui.slider.value)];
+        let bestZ=-1, minD=999;
+        dMeta.z_offsets.forEach((oz, i) => { if(Math.abs((dMeta.origin[2]+oz)-ctZ)<minD){minD=Math.abs((dMeta.origin[2]+oz)-ctZ); bestZ=i;} });
+        
+        if(minD < 2.0 && dCol>=0 && dCol<dMeta.cols && dRow>=0 && dRow<dMeta.rows) {
+            const idx = bestZ * dMeta.rows * dMeta.cols + dRow * dMeta.cols + dCol;
+            const val = vp.doseVolume[idx];
+            if(val !== undefined) {
+                if(state.doseUnit==='Gy') el.textContent = val.toFixed(2) + " Gy";
+                else el.textContent = ((val/parseFloat(ui.normDose.value))*100).toFixed(1) + " %";
+            }
+        }
+    });
+}
+
+function getDoseColor(v, max) {
+    const r = v/max;
+    if(r<0.25) return [0, r*4*255, 255];
+    if(r<0.5) return [0, 255, (1-(r-0.25)*4)*255];
+    if(r<0.75) return [(r-0.5)*4*255, 255, 0];
+    return [255, (1-(r-0.75)*4)*255, 0];
+}
+
+function updateVisuals() {
+    ui.dispMin.textContent = ui.doseMin.value;
+    ui.dispMax.textContent = ui.doseMax.value;
+    ['left', 'right'].forEach(k => redrawOverlay(k));
+}
+
+function switchUnit(u) {
+    state.doseUnit = u;
+    const norm = parseFloat(ui.normDose.value);
+    if(u === 'Gy') {
+        ui.doseMin.value = (parseInt(ui.doseMin.value)/100)*norm;
+        ui.doseMax.value = (parseInt(ui.doseMax.value)/100)*norm;
+    } else {
+        ui.doseMin.value = (parseFloat(ui.doseMin.value)/norm)*100;
+        ui.doseMax.value = (parseFloat(ui.doseMax.value)/norm)*100;
+    }
+    setSliderRange(u);
+    updateVisuals();
+}
+
+function setSliderRange(u) {
+    if(u==='Gy') {
+        const m = Math.ceil(parseFloat(ui.normDose.value)*1.3);
+        ui.doseMin.max = m; ui.doseMax.max = m;
+    } else {
+        ui.doseMin.max = 130; ui.doseMax.max = 130;
+    }
+}
+
+window.setWL = (ww, wc) => {
+    ['left', 'right'].forEach(k => {
+        const vp = cornerstone.getViewport(state.viewports[k].el);
+        if(vp) { vp.voi.windowWidth=ww; vp.voi.windowCenter=wc; cornerstone.setViewport(state.viewports[k].el, vp); }
+    });
+};
+
+init();
