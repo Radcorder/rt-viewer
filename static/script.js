@@ -1,4 +1,4 @@
-/* RT-Viewer Ultimate Script (Gzip + Z-Crop Support) */
+/* RT-Viewer Ultimate Script (v2.3: Absolute Z Fix) */
 const state = {
     caseId: null, manifest: null, ctVolume: null,
     doseUnit: 'Gy', normalizationDse: 60.0,
@@ -88,11 +88,8 @@ async function loadCaseList() {
     } catch (e) { console.error("Load Error", e); }
 }
 
-// ★修正: .bin.gz をダウンロードして解凍する関数
 async function fetchBinary(url, chunks) {
-    // URLに .gz がついていなければ付ける (Python側でファイル名を .bin.gz にしているため)
     const realUrl = url.endsWith('.gz') ? url : url + '.gz';
-
     let combined;
     if (!chunks || chunks <= 1) {
         const buf = await fetch(realUrl).then(r => r.arrayBuffer());
@@ -106,15 +103,8 @@ async function fetchBinary(url, chunks) {
         let offset=0;
         buffers.forEach(b=>{ combined.set(new Uint8Array(b), offset); offset+=b.byteLength; });
     }
-
-    // 解凍処理 (Pako)
-    try {
-        const decompressed = pako.inflate(combined);
-        return decompressed.buffer;
-    } catch (e) {
-        console.warn("Decompression failed or data is not compressed. Using raw data.", e);
-        return combined.buffer;
-    }
+    try { return pako.inflate(combined).buffer; }
+    catch (e) { return combined.buffer; }
 }
 
 async function loadCase(caseId) {
@@ -142,11 +132,7 @@ async function loadCase(caseId) {
 
     if(doseKeys.length > 0) await loadDose('left', doseKeys[0]);
     if(doseKeys.length > 1) await loadDose('right', doseKeys[1]); else if(doseKeys.length > 0) await loadDose('right', doseKeys[0]);
-    
-    if(structKeys.length > 0) {
-        await loadStruct('left', structKeys[0]);
-        await loadStruct('right', structKeys[0]);
-    }
+    if(structKeys.length > 0) { await loadStruct('left', structKeys[0]); await loadStruct('right', structKeys[0]); }
     
     ui.loadingBar.style.width = "100%";
     setTimeout(() => ui.loadingBar.style.width = "0%", 500);
@@ -174,25 +160,15 @@ async function loadStruct(key, structId) {
     const vp = state.viewports[key];
     vp.structId = structId; ui[key].structSel.value = structId;
     if(!structId) { vp.structData = null; redrawOverlay(key); return; }
-    
     const fn = state.manifest.structs[structId];
     vp.structData = await fetch(`./static/data/${state.caseId}/${fn}`).then(r=>r.json());
-    
     vp.roiListEl.innerHTML = "";
-    
     const btnRow = document.createElement('div');
-    btnRow.style.padding = "5px";
-    btnRow.style.borderBottom = "1px solid #333";
-    btnRow.style.marginBottom = "5px";
-    
+    btnRow.style.padding = "5px"; btnRow.style.borderBottom = "1px solid #333"; btnRow.style.marginBottom = "5px";
     const btn = document.createElement('button');
-    btn.className = "btn-tiny full-width"; 
-    btn.textContent = "👁️ ALL ON/OFF";
+    btn.className = "btn-tiny full-width"; btn.textContent = "👁️ ALL ON/OFF";
     btn.onclick = () => window.toggleAllROI(key);
-    
-    btnRow.appendChild(btn);
-    vp.roiListEl.appendChild(btnRow);
-
+    btnRow.appendChild(btn); vp.roiListEl.appendChild(btnRow);
     Object.keys(vp.structData).forEach(n => {
         if(vp.roiVisibility[n] === undefined) vp.roiVisibility[n] = true;
         const d = document.createElement('div'); d.className = 'roi-item';
@@ -221,16 +197,14 @@ function drawSlice(idx) {
             slope: 1.0, intercept: 0.0, windowCenter: 40, windowWidth: 400,
             render: cornerstone.renderGrayscaleImage, get: () => undefined
         };
-        try {
-            const vp = cornerstone.getViewport(el);
-            if(vp) { img.windowCenter=vp.voi.windowCenter; img.windowWidth=vp.voi.windowWidth; }
-        } catch(e){}
+        try { const vp = cornerstone.getViewport(el); if(vp) { img.windowCenter=vp.voi.windowCenter; img.windowWidth=vp.voi.windowWidth; } } catch(e){}
         cornerstone.displayImage(el, img);
         redrawOverlay(k);
     });
     ui.sliceInfo.textContent = `${idx} / ${meta.count-1}`;
 }
 
+// ★修正点: 絶対Z座標を使ってマッチング
 function redrawOverlay(key) {
     const vp = state.viewports[key];
     const el = vp.el;
@@ -243,25 +217,31 @@ function redrawOverlay(key) {
     const sCtx = vp.structCanvas.getContext('2d');
     dCtx.clearRect(0,0,w,h); sCtx.clearRect(0,0,w,h);
     
+    // --- 線量描画 ---
     if (vp.doseVolume) {
+        // 現在のCTの物理Z座標
         const ctZ = state.manifest.ct.z_positions[parseInt(ui.slider.value)];
+        
         let bestZ=-1, minD=999;
-        vp.doseMeta.z_offsets.forEach((oz, i) => {
-            const dz = vp.doseMeta.origin[2] + oz;
+        // 線量の絶対Z座標リストから、最も近いものを探す
+        const doseZPositions = vp.doseMeta.z_positions || [];
+        doseZPositions.forEach((dz, i) => {
             if(Math.abs(dz - ctZ) < minD) { minD = Math.abs(dz - ctZ); bestZ = i; }
         });
-        if (minD < 2.0) {
+        
+        // 誤差2mm以内なら表示
+        if (minD < 2.0 && bestZ !== -1) {
             const dMeta = vp.doseMeta;
             const start = bestZ * dMeta.rows * dMeta.cols;
             const doseSlice = vp.doseVolume.subarray(start, start + dMeta.rows * dMeta.cols);
-            const c = document.createElement('canvas');
-            c.width = dMeta.cols; c.height = dMeta.rows;
-            const cx = c.getContext('2d');
-            const imgData = cx.createImageData(dMeta.cols, dMeta.rows);
+            const c = document.createElement('canvas'); c.width = dMeta.cols; c.height = dMeta.rows;
+            const cx = c.getContext('2d'); const imgData = cx.createImageData(dMeta.cols, dMeta.rows);
+            
             let minV, maxV;
             const norm = parseFloat(ui.normDose.value) || 60;
             if(state.doseUnit === 'Gy') { minV = parseFloat(ui.doseMin.value); maxV = parseFloat(ui.doseMax.value); }
             else { minV = (parseFloat(ui.doseMin.value)/100)*norm; maxV = (parseFloat(ui.doseMax.value)/100)*norm; }
+            
             for(let i=0; i<doseSlice.length; i++) {
                 const v = doseSlice[i];
                 if(v >= minV) {
@@ -271,9 +251,7 @@ function redrawOverlay(key) {
                 }
             }
             cx.putImageData(imgData, 0, 0);
-            dCtx.save();
-            dCtx.globalAlpha = ui.opacity.value;
-            dCtx.imageSmoothingEnabled = true;
+            dCtx.save(); dCtx.globalAlpha = ui.opacity.value; dCtx.imageSmoothingEnabled = true;
             cornerstone.setToPixelCoordinateSystem(enEl, dCtx);
             const ctMeta = state.manifest.ct;
             const dx = (dMeta.origin[0] - ctMeta.origin[0]) / ctMeta.spacing[0];
@@ -285,9 +263,9 @@ function redrawOverlay(key) {
         }
     }
     
+    // --- ストラクチャ描画 ---
     if (vp.structData) {
-        sCtx.save();
-        cornerstone.setToPixelCoordinateSystem(enEl, sCtx);
+        sCtx.save(); cornerstone.setToPixelCoordinateSystem(enEl, sCtx);
         sCtx.lineWidth = 2.0 / enEl.viewport.scale;
         const ctZ = state.manifest.ct.z_positions[parseInt(ui.slider.value)];
         Object.keys(vp.structData).forEach(roi => {
@@ -299,8 +277,7 @@ function redrawOverlay(key) {
                 for(let k of keys) { if(Math.abs(parseFloat(k)-ctZ) < 0.1) { pts = s.contours[k]; break; } }
             }
             if (pts) {
-                sCtx.strokeStyle = s.color;
-                sCtx.beginPath();
+                sCtx.strokeStyle = s.color; sCtx.beginPath();
                 pts.forEach(poly => {
                     sCtx.moveTo(poly[0][0], poly[0][1]);
                     for(let i=1; i<poly.length; i++) sCtx.lineTo(poly[i][0], poly[i][1]);
@@ -324,7 +301,11 @@ function updateDoseReadout(wx, wy) {
         const dRow = Math.floor((wy - dMeta.origin[1]) / dMeta.spacing[1]);
         const ctZ = state.manifest.ct.z_positions[parseInt(ui.slider.value)];
         let bestZ=-1, minD=999;
-        dMeta.z_offsets.forEach((oz, i) => { if(Math.abs((dMeta.origin[2]+oz)-ctZ)<minD){minD=Math.abs((dMeta.origin[2]+oz)-ctZ); bestZ=i;} });
+        
+        // Z検索も絶対座標で
+        const doseZPositions = vp.doseMeta.z_positions || [];
+        doseZPositions.forEach((dz, i) => { if(Math.abs(dz - ctZ) < minD) { minD = Math.abs(dz - ctZ); bestZ = i; } });
+        
         if(minD < 2.0 && dCol>=0 && dCol<dMeta.cols && dRow>=0 && dRow<dMeta.rows) {
             const idx = bestZ * dMeta.rows * dMeta.cols + dRow * dMeta.cols + dCol;
             const val = vp.doseVolume[idx];
@@ -353,24 +334,14 @@ function updateVisuals() {
 function switchUnit(u) {
     state.doseUnit = u;
     const norm = parseFloat(ui.normDose.value);
-    if(u === 'Gy') {
-        ui.doseMin.value = (parseInt(ui.doseMin.value)/100)*norm;
-        ui.doseMax.value = (parseInt(ui.doseMax.value)/100)*norm;
-    } else {
-        ui.doseMin.value = (parseFloat(ui.doseMin.value)/norm)*100;
-        ui.doseMax.value = (parseFloat(ui.doseMax.value)/norm)*100;
-    }
-    setSliderRange(u);
-    updateVisuals();
+    if(u === 'Gy') { ui.doseMin.value = (parseInt(ui.doseMin.value)/100)*norm; ui.doseMax.value = (parseInt(ui.doseMax.value)/100)*norm; }
+    else { ui.doseMin.value = (parseFloat(ui.doseMin.value)/norm)*100; ui.doseMax.value = (parseFloat(ui.doseMax.value)/norm)*100; }
+    setSliderRange(u); updateVisuals();
 }
 
 function setSliderRange(u) {
-    if(u==='Gy') {
-        const m = Math.ceil(parseFloat(ui.normDose.value)*1.3);
-        ui.doseMin.max = m; ui.doseMax.max = m;
-    } else {
-        ui.doseMin.max = 130; ui.doseMax.max = 130;
-    }
+    if(u==='Gy') { const m = Math.ceil(parseFloat(ui.normDose.value)*1.3); ui.doseMin.max = m; ui.doseMax.max = m; }
+    else { ui.doseMin.max = 130; ui.doseMax.max = 130; }
 }
 
 window.setWL = (ww, wc) => {
