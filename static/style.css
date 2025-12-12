@@ -27,13 +27,7 @@ select, input[type=number] { background: #333; color: #fff; border: 1px solid #5
 #roiHeaderLeft { border-left: 3px solid #4CAF50; } 
 #roiHeaderRight { border-left: 3px solid #2196F3; }
 
-/* ★新しいボタンエリア */
-.roi-controls {
-    background: #202020;
-    padding: 4px 10px;
-    border-bottom: 1px solid #333;
-    text-align: center;
-}
+/* ALLボタンのスタイル */
 .btn-tiny {
     background: #444; border: 1px solid #666; color: #ddd;
     font-size: 0.85em; padding: 3px 6px; cursor: pointer; border-radius: 3px;
