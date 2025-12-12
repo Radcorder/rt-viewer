@@ -1,4 +1,4 @@
-/* RT-Viewer Ultimate Script */
+/* RT-Viewer Ultimate Script (Fixed CT Loading) */
 const state = {
     caseId: null, manifest: null, ctVolume: null,
     doseUnit: 'Gy', normalizationDse: 60.0,
@@ -34,15 +34,13 @@ function init() {
 
         el.addEventListener('cornerstoneimagerendered', () => redrawOverlay(k));
         el.addEventListener('cornerstoneToolsStackScroll', (e) => {
-            // スクロール同期（片方が動いたらスライダーも動かす）
             const newIdx = e.detail.newImageIdIndex;
             if(ui.slider.value != newIdx) {
                 ui.slider.value = newIdx;
-                drawSlice(newIdx); // 反対側も描画
+                drawSlice(newIdx);
             }
         });
         
-        // マウス位置の線量表示
         el.addEventListener('mousemove', (e) => {
             if (!state.manifest) return;
             const pt = cornerstone.pageToPixel(el, e.pageX, e.pageY);
@@ -53,7 +51,6 @@ function init() {
         });
     });
 
-    // 同期設定
     const syncPZ = new cornerstoneTools.Synchronizer("cornerstoneimagerendered", cornerstoneTools.panZoomSynchronizer);
     const syncWC = new cornerstoneTools.Synchronizer("cornerstoneimagerendered", cornerstoneTools.wwwcSynchronizer);
     syncPZ.add(state.viewports.left.el); syncPZ.add(state.viewports.right.el);
@@ -61,7 +58,6 @@ function init() {
 
     loadCaseList();
     
-    // イベントリスナー
     ui.caseSel.addEventListener('change', (e) => loadCase(e.target.value));
     ui.slider.addEventListener('input', (e) => drawSlice(parseInt(e.target.value)));
     ui.doseMin.addEventListener('input', updateVisuals);
@@ -89,7 +85,7 @@ async function loadCaseList() {
     } catch (e) { console.error("Load Error", e); }
 }
 
-async function fetchBinary(url, chunks, progressCallback) {
+async function fetchBinary(url, chunks) {
     if (!chunks || chunks <= 1) return await fetch(url).then(r => r.arrayBuffer());
     const promises = [];
     for(let i=0; i<chunks; i++) promises.push(fetch(`${url}.${i}`).then(r=>r.arrayBuffer()));
@@ -105,19 +101,23 @@ async function loadCase(caseId) {
     state.caseId = caseId;
     ui.loadingBar.style.width = "30%";
     
-    // Manifest
     const mf = await fetch(`./static/data/${caseId}/manifest.json`).then(r=>r.json());
     state.manifest = mf;
     
-    // CT Volume
+    // ★修正ポイント: 8bitデータを読み込み、LUTを使って元のCT値(16bit)に戻す
     const ctBin = await fetchBinary(`./static/data/${caseId}/ct.bin`, mf.ct.chunks);
-    state.ctVolume = new Int16Array(ctBin);
+    const rawBytes = new Uint8Array(ctBin);
+    const volumeLen = rawBytes.length;
+    state.ctVolume = new Int16Array(volumeLen);
     
-    // UI Init
+    const lut = mf.ct.lut; // 工場で作った変換表
+    for(let i=0; i<volumeLen; i++) {
+        state.ctVolume[i] = lut[rawBytes[i]]; // 暗号解読！
+    }
+    
     ui.slider.max = mf.ct.count - 1;
     ui.slider.value = Math.floor(mf.ct.count / 2);
     
-    // Dropdowns
     const doseKeys = Object.keys(mf.doses);
     const structKeys = Object.keys(mf.structs);
     
@@ -129,26 +129,23 @@ async function loadCase(caseId) {
         structKeys.forEach(s => { let o=document.createElement('option'); o.value=s; o.text=s; ui[k].structSel.add(o); });
     });
 
-    // Default Selection (Left: First, Right: Second if exists)
     if(doseKeys.length > 0) await loadDose('left', doseKeys[0]);
     if(doseKeys.length > 1) await loadDose('right', doseKeys[1]); else if(doseKeys.length > 0) await loadDose('right', doseKeys[0]);
     
     if(structKeys.length > 0) {
         await loadStruct('left', structKeys[0]);
-        await loadStruct('right', structKeys[0]); // Same struct for both by default
+        await loadStruct('right', structKeys[0]);
     }
     
     ui.loadingBar.style.width = "100%";
     setTimeout(() => ui.loadingBar.style.width = "0%", 500);
     
-    // Update Normalization from first dose
     if(doseKeys.length > 0) {
         const presc = mf.doses[doseKeys[0]].prescription || 60;
         state.normalizationDose = presc; ui.normDose.value = presc;
         setSliderRange('Gy'); updateVisuals();
     }
     
-    // Initial Draw
     ['left', 'right'].forEach(k => cornerstone.resize(state.viewports[k].el));
     drawSlice(parseInt(ui.slider.value));
 }
@@ -173,7 +170,6 @@ async function loadStruct(key, structId) {
     const fn = state.manifest.structs[structId];
     vp.structData = await fetch(`./static/data/${state.caseId}/${fn}`).then(r=>r.json());
     
-    // Update ROI List UI
     vp.roiListEl.innerHTML = "";
     Object.keys(vp.structData).forEach(n => {
         if(vp.roiVisibility[n] === undefined) vp.roiVisibility[n] = true;
@@ -195,7 +191,6 @@ function drawSlice(idx) {
     
     ['left', 'right'].forEach(k => {
         const el = state.viewports[k].el;
-        // Cornerstone Image Object
         const img = {
             imageId: `ct:${state.caseId}:${idx}:${k}`,
             minPixelValue: -1024, maxPixelValue: 3000,
@@ -205,13 +200,10 @@ function drawSlice(idx) {
             slope: 1.0, intercept: 0.0, windowCenter: 40, windowWidth: 400,
             render: cornerstone.renderGrayscaleImage, get: () => undefined
         };
-        
-        // Preserve W/L
         try {
             const vp = cornerstone.getViewport(el);
             if(vp) { img.windowCenter=vp.voi.windowCenter; img.windowWidth=vp.voi.windowWidth; }
         } catch(e){}
-        
         cornerstone.displayImage(el, img);
         redrawOverlay(k);
     });
@@ -232,9 +224,7 @@ function redrawOverlay(key) {
     const sCtx = vp.structCanvas.getContext('2d');
     dCtx.clearRect(0,0,w,h); sCtx.clearRect(0,0,w,h);
     
-    // --- Dose Drawing ---
     if (vp.doseVolume) {
-        // Find best Z slice
         const ctZ = state.manifest.ct.z_positions[parseInt(ui.slider.value)];
         let bestZ=-1, minD=999;
         vp.doseMeta.z_offsets.forEach((oz, i) => {
@@ -243,12 +233,10 @@ function redrawOverlay(key) {
         });
         
         if (minD < 2.0) {
-            // Generate Dose Image
             const dMeta = vp.doseMeta;
             const start = bestZ * dMeta.rows * dMeta.cols;
             const doseSlice = vp.doseVolume.subarray(start, start + dMeta.rows * dMeta.cols);
             
-            // Create offscreen canvas for dose
             const c = document.createElement('canvas');
             c.width = dMeta.cols; c.height = dMeta.rows;
             const cx = c.getContext('2d');
@@ -269,127 +257,13 @@ function redrawOverlay(key) {
             }
             cx.putImageData(imgData, 0, 0);
             
-            // Draw to Overlay
             dCtx.save();
             dCtx.globalAlpha = ui.opacity.value;
-            dCtx.imageSmoothingEnabled = true; // Smooth scaling
+            dCtx.imageSmoothingEnabled = true;
             cornerstone.setToPixelCoordinateSystem(enEl, dCtx);
             
             const ctMeta = state.manifest.ct;
             const dx = (dMeta.origin[0] - ctMeta.origin[0]) / ctMeta.spacing[0];
             const dy = (dMeta.origin[1] - ctMeta.origin[1]) / ctMeta.spacing[1];
             const dw = dMeta.cols * (dMeta.spacing[0] / ctMeta.spacing[0]);
-            const dh = dMeta.rows * (dMeta.spacing[1] / ctMeta.spacing[1]);
-            
-            dCtx.drawImage(c, dx, dy, dw, dh);
-            dCtx.restore();
-        }
-    }
-    
-    // --- Struct Drawing ---
-    if (vp.structData) {
-        sCtx.save();
-        cornerstone.setToPixelCoordinateSystem(enEl, sCtx);
-        sCtx.lineWidth = 2.0 / enEl.viewport.scale;
-        
-        const ctZ = state.manifest.ct.z_positions[parseInt(ui.slider.value)];
-        
-        Object.keys(vp.structData).forEach(roi => {
-            if (vp.roiVisibility[roi] === false) return;
-            const s = vp.structData[roi];
-            let pts = s.contours[ctZ.toFixed(2)];
-            if (!pts) {
-                // Fuzzy match Z
-                const keys = Object.keys(s.contours);
-                for(let k of keys) { if(Math.abs(parseFloat(k)-ctZ) < 0.1) { pts = s.contours[k]; break; } }
-            }
-            
-            if (pts) {
-                sCtx.strokeStyle = s.color;
-                sCtx.beginPath();
-                pts.forEach(poly => {
-                    sCtx.moveTo(poly[0][0], poly[0][1]);
-                    for(let i=1; i<poly.length; i++) sCtx.lineTo(poly[i][0], poly[i][1]);
-                    sCtx.closePath();
-                });
-                sCtx.stroke();
-            }
-        });
-        sCtx.restore();
-    }
-}
-
-function updateDoseReadout(wx, wy) {
-    ['left', 'right'].forEach(k => {
-        const el = document.getElementById(k==='left'?'doseValLeft':'doseValRight');
-        el.textContent = "";
-        const vp = state.viewports[k];
-        if(!vp.doseVolume) return;
-        
-        // Find correct dose voxel
-        const dMeta = vp.doseMeta;
-        const dCol = Math.floor((wx - dMeta.origin[0]) / dMeta.spacing[0]);
-        const dRow = Math.floor((wy - dMeta.origin[1]) / dMeta.spacing[1]);
-        
-        // Find Dose Z index
-        const ctZ = state.manifest.ct.z_positions[parseInt(ui.slider.value)];
-        let bestZ=-1, minD=999;
-        dMeta.z_offsets.forEach((oz, i) => { if(Math.abs((dMeta.origin[2]+oz)-ctZ)<minD){minD=Math.abs((dMeta.origin[2]+oz)-ctZ); bestZ=i;} });
-        
-        if(minD < 2.0 && dCol>=0 && dCol<dMeta.cols && dRow>=0 && dRow<dMeta.rows) {
-            const idx = bestZ * dMeta.rows * dMeta.cols + dRow * dMeta.cols + dCol;
-            const val = vp.doseVolume[idx];
-            if(val !== undefined) {
-                if(state.doseUnit==='Gy') el.textContent = val.toFixed(2) + " Gy";
-                else el.textContent = ((val/parseFloat(ui.normDose.value))*100).toFixed(1) + " %";
-            }
-        }
-    });
-}
-
-function getDoseColor(v, max) {
-    const r = v/max;
-    if(r<0.25) return [0, r*4*255, 255];
-    if(r<0.5) return [0, 255, (1-(r-0.25)*4)*255];
-    if(r<0.75) return [(r-0.5)*4*255, 255, 0];
-    return [255, (1-(r-0.75)*4)*255, 0];
-}
-
-function updateVisuals() {
-    ui.dispMin.textContent = ui.doseMin.value;
-    ui.dispMax.textContent = ui.doseMax.value;
-    ['left', 'right'].forEach(k => redrawOverlay(k));
-}
-
-function switchUnit(u) {
-    state.doseUnit = u;
-    const norm = parseFloat(ui.normDose.value);
-    // Convert slider values
-    if(u === 'Gy') {
-        ui.doseMin.value = (parseInt(ui.doseMin.value)/100)*norm;
-        ui.doseMax.value = (parseInt(ui.doseMax.value)/100)*norm;
-    } else {
-        ui.doseMin.value = (parseFloat(ui.doseMin.value)/norm)*100;
-        ui.doseMax.value = (parseFloat(ui.doseMax.value)/norm)*100;
-    }
-    setSliderRange(u);
-    updateVisuals();
-}
-
-function setSliderRange(u) {
-    if(u==='Gy') {
-        const m = Math.ceil(parseFloat(ui.normDose.value)*1.3);
-        ui.doseMin.max = m; ui.doseMax.max = m;
-    } else {
-        ui.doseMin.max = 130; ui.doseMax.max = 130;
-    }
-}
-
-window.setWL = (ww, wc) => {
-    ['left', 'right'].forEach(k => {
-        const vp = cornerstone.getViewport(state.viewports[k].el);
-        if(vp) { vp.voi.windowWidth=ww; vp.voi.windowCenter=wc; cornerstone.setViewport(state.viewports[k].el, vp); }
-    });
-};
-
-init();
+            const dh = d
