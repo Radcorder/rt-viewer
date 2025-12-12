@@ -1,4 +1,4 @@
-/* RT-Viewer Ultimate Script (Integrated ALL Button) */
+/* RT-Viewer Ultimate Script (Gzip + Z-Crop Support) */
 const state = {
     caseId: null, manifest: null, ctVolume: null,
     doseUnit: 'Gy', normalizationDse: 60.0,
@@ -88,16 +88,33 @@ async function loadCaseList() {
     } catch (e) { console.error("Load Error", e); }
 }
 
+// ★修正: .bin.gz をダウンロードして解凍する関数
 async function fetchBinary(url, chunks) {
-    if (!chunks || chunks <= 1) return await fetch(url).then(r => r.arrayBuffer());
-    const promises = [];
-    for(let i=0; i<chunks; i++) promises.push(fetch(`${url}.${i}`).then(r=>r.arrayBuffer()));
-    const buffers = await Promise.all(promises);
-    const total = buffers.reduce((a,b)=>a+b.byteLength,0);
-    const combined = new Uint8Array(total);
-    let offset=0;
-    buffers.forEach(b=>{ combined.set(new Uint8Array(b), offset); offset+=b.byteLength; });
-    return combined.buffer;
+    // URLに .gz がついていなければ付ける (Python側でファイル名を .bin.gz にしているため)
+    const realUrl = url.endsWith('.gz') ? url : url + '.gz';
+
+    let combined;
+    if (!chunks || chunks <= 1) {
+        const buf = await fetch(realUrl).then(r => r.arrayBuffer());
+        combined = new Uint8Array(buf);
+    } else {
+        const promises = [];
+        for(let i=0; i<chunks; i++) promises.push(fetch(`${realUrl}.${i}`).then(r=>r.arrayBuffer()));
+        const buffers = await Promise.all(promises);
+        const total = buffers.reduce((a,b)=>a+b.byteLength,0);
+        combined = new Uint8Array(total);
+        let offset=0;
+        buffers.forEach(b=>{ combined.set(new Uint8Array(b), offset); offset+=b.byteLength; });
+    }
+
+    // 解凍処理 (Pako)
+    try {
+        const decompressed = pako.inflate(combined);
+        return decompressed.buffer;
+    } catch (e) {
+        console.warn("Decompression failed or data is not compressed. Using raw data.", e);
+        return combined.buffer;
+    }
 }
 
 async function loadCase(caseId) {
@@ -153,7 +170,6 @@ async function loadDose(key, doseId) {
     redrawOverlay(key);
 }
 
-// ★ここが変わりました！
 async function loadStruct(key, structId) {
     const vp = state.viewports[key];
     vp.structId = structId; ui[key].structSel.value = structId;
@@ -164,21 +180,19 @@ async function loadStruct(key, structId) {
     
     vp.roiListEl.innerHTML = "";
     
-    // 1. 先頭に「ALLボタン」をリスト項目として追加
     const btnRow = document.createElement('div');
     btnRow.style.padding = "5px";
     btnRow.style.borderBottom = "1px solid #333";
     btnRow.style.marginBottom = "5px";
     
     const btn = document.createElement('button');
-    btn.className = "btn-tiny full-width"; // CSSで定義したスタイルを使用
+    btn.className = "btn-tiny full-width"; 
     btn.textContent = "👁️ ALL ON/OFF";
     btn.onclick = () => window.toggleAllROI(key);
     
     btnRow.appendChild(btn);
     vp.roiListEl.appendChild(btnRow);
 
-    // 2. その下にいつものROIリストを追加
     Object.keys(vp.structData).forEach(n => {
         if(vp.roiVisibility[n] === undefined) vp.roiVisibility[n] = true;
         const d = document.createElement('div'); d.className = 'roi-item';
