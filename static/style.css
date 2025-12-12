@@ -23,18 +23,23 @@ select, input[type=number] { background: #333; color: #fff; border: 1px solid #5
 .roi-section-header { 
     padding: 5px 10px; font-weight: bold; font-size: 0.8em; 
     background: #252525; border-bottom: 1px solid #333; color: #eee;
-    /* ★横並びにしてボタンを配置 */
-    display: flex; justify-content: space-between; align-items: center;
 }
 #roiHeaderLeft { border-left: 3px solid #4CAF50; } 
 #roiHeaderRight { border-left: 3px solid #2196F3; }
 
-/* ★ALLボタンのデザイン */
+/* ★新しいボタンエリア */
+.roi-controls {
+    background: #202020;
+    padding: 4px 10px;
+    border-bottom: 1px solid #333;
+    text-align: center;
+}
 .btn-tiny {
     background: #444; border: 1px solid #666; color: #ddd;
-    font-size: 0.9em; padding: 1px 6px; cursor: pointer; border-radius: 3px;
+    font-size: 0.85em; padding: 3px 6px; cursor: pointer; border-radius: 3px;
 }
 .btn-tiny:hover { background: #666; color: #fff; }
+.full-width { width: 100%; }
 
 .roi-list { padding: 5px; }
 .roi-item { display: flex; align-items: center; margin-bottom: 3px; cursor: pointer; font-size: 0.85em; color: #bbb; }
