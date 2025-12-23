@@ -14,6 +14,65 @@
     <meta name="robots" content="noindex, nofollow">
 </head>
 <body>
+    <div id="consent-overlay" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.95); z-index:9999; display:flex; justify-content:center; align-items:center; color:white; font-family:sans-serif; padding:20px; box-sizing:border-box;">
+    <div style="max-width:600px; background:#222; padding:40px; border-radius:10px; border:2px solid #f00; text-align:center;">
+        <h1 style="color:#ff4d4d; margin-top:0;">⚠️ WARNING: NOT FOR CLINICAL USE</h1>
+        <p style="text-align:left; line-height:1.6; font-size:14px;">
+            This tool (rt-viewer) is provided for <strong>EDUCATIONAL AND RESEARCH PURPOSES ONLY</strong>. 
+            It is a technical demonstration of DICOM-RT visualization in a web environment.
+        </p>
+        <ul style="text-align:left; font-size:13px; color:#ccc;">
+            <li>This software is NOT a medical device.</li>
+            <li>It has NOT been cleared by any regulatory authority (FDA, PMDA, etc.).</li>
+            <li>DO NOT use this for clinical diagnosis or treatment planning.</li>
+            <li>The developer assumes NO responsibility for any consequences arising from the use of this tool.</li>
+        </ul>
+        
+        <div style="margin:30px 0;">
+            <input type="checkbox" id="consent-check" style="transform:scale(1.5);">
+            <label for="consent-check" style="margin-left:10px; font-weight:bold;">
+                I understand and agree to the terms above.
+            </label>
+        </div>
+        
+        <button id="enter-btn" disabled style="padding:10px 30px; font-size:18px; background:#444; color:#888; border:none; border-radius:5px; cursor:not-allowed;">
+            Enter Viewer
+        </button>
+    </div>
+</div>
+
+<script>
+    const checkbox = document.getElementById('consent-check');
+    const button = document.getElementById('enter-btn');
+    const overlay = document.getElementById('consent-overlay');
+
+    // チェックボックスの状態に合わせてボタンを有効化
+    checkbox.addEventListener('change', function() {
+        if (this.checked) {
+            button.disabled = false;
+            button.style.background = '#d9534f';
+            button.style.color = 'white';
+            button.style.cursor = 'pointer';
+        } else {
+            button.disabled = true;
+            button.style.background = '#444';
+            button.style.color = '#888';
+            button.style.cursor = 'not-allowed';
+        }
+    });
+
+    // ボタンクリックでオーバーレイを消す
+    button.addEventListener('click', function() {
+        overlay.style.display = 'none';
+        // セッション中のみ同意を維持（タブを閉じたら再度警告）
+        sessionStorage.setItem('consent-agreed', 'true');
+    });
+
+    // すでに同意済みかチェック
+    if (sessionStorage.getItem('consent-agreed') === 'true') {
+        overlay.style.display = 'none';
+    }
+</script>
 
     <div id="header">
         <div class="ctrl-group">
