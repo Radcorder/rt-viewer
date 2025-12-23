@@ -1,4 +1,11 @@
 /* RT-Viewer Ultimate Script (v2.3: Absolute Z Fix) */
+/**
+ * RT-Viewer: DICOM RT Processing Logic
+ * (c) 2025 [Your Name/Handle]
+ * For educational reference only. Clinical use is strictly prohibited.
+ * Based on the logic of "Anonymized DICOM Conversion" to ensure privacy.
+ */
+
 const state = {
     caseId: null, manifest: null, ctVolume: null,
     doseUnit: 'Gy', normalizationDse: 60.0,
