@@ -358,6 +358,24 @@ window.setWL = (ww, wc) => {
     });
 };
 
+// --- ここから追加：ズーム操作関数 ---
+window.changeZoom = (delta) => {
+    ['left', 'right'].forEach(k => {
+        const el = state.viewports[k].el;
+        const viewport = cornerstone.getViewport(el);
+        if (viewport) {
+            // 現在のスケールに delta を加算 (0.2 ずつなど)
+            viewport.scale += delta;
+            
+            // 最小値制限 (0.1倍未満にならないように)
+            if (viewport.scale < 0.1) viewport.scale = 0.1;
+            
+            cornerstone.setViewport(el, viewport);
+        }
+    });
+};
+// --- ここまで追加 ---
+
 window.toggleAllROI = (key) => {
     const vp = state.viewports[key];
     if(!vp.structData) return;
