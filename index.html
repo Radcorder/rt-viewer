@@ -109,11 +109,13 @@
         </div>
 
         <div class="ctrl-group" style="border-left: 1px solid #555; padding-left: 10px;">
-            <label>Preset</label>
+            <label>Preset / Zoom</label>
             <div style="display:flex; gap:2px;">
                 <button onclick="setWL(400,40)" class="btn-tool">Soft</button>
                 <button onclick="setWL(1500,-600)" class="btn-tool">Lung</button>
                 <button onclick="setWL(2000,300)" class="btn-tool">Bone</button>
+                <button onclick="changeZoom(0.2)" class="btn-tool" style="margin-left:10px; font-weight:bold; background:#555;">+</button>
+                <button onclick="changeZoom(-0.2)" class="btn-tool" style="font-weight:bold; background:#555;">-</button>
             </div>
         </div>
     </div>
