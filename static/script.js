@@ -362,15 +362,25 @@ window.setWL = (ww, wc) => {
 window.changeZoom = (delta) => {
     ['left', 'right'].forEach(k => {
         const el = state.viewports[k].el;
+        if (!el) return;
+
+        // 1. 現在のビューポート情報を取得
         const viewport = cornerstone.getViewport(el);
         if (viewport) {
-            // 現在のスケールに delta を加算 (0.2 ずつなど)
+            // 2. スケールを変更
+            const oldScale = viewport.scale;
             viewport.scale += delta;
             
-            // 最小値制限 (0.1倍未満にならないように)
+            // 3. 最小/最大制限（0.1倍〜10倍程度）
             if (viewport.scale < 0.1) viewport.scale = 0.1;
+            if (viewport.scale > 10.0) viewport.scale = 10.0;
             
+            // 4. 新しい状態を適用
             cornerstone.setViewport(el, viewport);
+
+            // 5. 【重要】画面を強制的に更新
+            // これを入れないと、数値は変わっても見た目が変わりません
+            cornerstone.updateImage(el);
         }
     });
 };
